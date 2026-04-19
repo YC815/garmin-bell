@@ -60,7 +60,6 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  filter: drop-shadow(0 0 20px currentColor) drop-shadow(0 0 40px currentColor);
   min-height: 120px;
 }
 .combo-number {
@@ -69,4 +68,5 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   -webkit-text-stroke: 2px currentColor;
+  text-shadow: 0 0 20px currentColor;
 }

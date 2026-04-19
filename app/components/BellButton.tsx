@@ -65,6 +65,8 @@ function getComboColor(combo: number): string {
   return '#ffffff'
 }
 
+const MAX_PARTICLES = 150
+
 // ── Main Component ─────────────────────────────────────────
 export default function BellButton() {
   const btnRef        = useRef<HTMLButtonElement>(null)
@@ -82,6 +84,7 @@ export default function BellButton() {
   const audioCtxRef    = useRef<AudioContext | null>(null)
   const audioBufferRef = useRef<AudioBuffer | null>(null)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
+  const tickRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if ('audioSession' in navigator) {
@@ -132,10 +135,17 @@ export default function BellButton() {
         ctx.fill()
       }
       ctx.globalAlpha = 1
-      rafRef.current = requestAnimationFrame(tick)
+      if (particlesRef.current.length > 0) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        rafRef.current = 0
+      }
     }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
+    tickRef.current = tick
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      tickRef.current = null
+    }
   }, [])
 
   const shakeScreen = useCallback((intensity: number) => {
@@ -181,6 +191,12 @@ export default function BellButton() {
         20 + Math.min(comboRef.current * 5, 80),
       )
       particlesRef.current.push(...newParticles)
+      if (particlesRef.current.length > MAX_PARTICLES) {
+        particlesRef.current = particlesRef.current.slice(-MAX_PARTICLES)
+      }
+      if (rafRef.current === 0 && tickRef.current) {
+        rafRef.current = requestAnimationFrame(tickRef.current)
+      }
     }
 
     // combo 計數
