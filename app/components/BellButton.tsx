@@ -2,6 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+const VOLUME_STEPS = [0.25, 0.5, 1.0, 2.0, 3.0]
+const DEFAULT_STEP = 2 // index of 1.0
+
+function VolumeLabel({ step }: { step: number }) {
+  const labels = ['🔇', '🔉', '🔊', '📢', '💥']
+  const values = ['×0.25', '×0.5', '×1', '×2', '×3']
+  return (
+    <span className="flex flex-col items-center gap-0.5 leading-none select-none">
+      <span style={{ fontSize: 18 }}>{labels[step]}</span>
+      <span style={{ fontSize: 11, opacity: 0.6 }}>{values[step]}</span>
+    </span>
+  )
+}
+
 // ── 粒子系統 ──────────────────────────────────────────────
 interface Particle {
   x: number
@@ -65,8 +79,9 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const audioCtxRef  = useRef<AudioContext | null>(null)
+  const audioCtxRef    = useRef<AudioContext | null>(null)
   const audioBufferRef = useRef<AudioBuffer | null>(null)
+  const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
 
   useEffect(() => {
     const ctx = new AudioContext()
@@ -136,7 +151,7 @@ export default function BellButton() {
     if (ctx && buffer) {
       if (ctx.state === 'suspended') ctx.resume()
       const gainNode = ctx.createGain()
-      gainNode.gain.value = 3.0
+      gainNode.gain.value = VOLUME_STEPS[volumeStep]
       gainNode.connect(ctx.destination)
       const source = ctx.createBufferSource()
       source.buffer = buffer
@@ -183,7 +198,7 @@ export default function BellButton() {
 
     // 畫面震動，combo 越高越抖
     shakeScreen(Math.min(c * 0.8, 10))
-  }, [shakeScreen])
+  }, [shakeScreen, volumeStep])
 
   const color = getComboColor(combo)
   const scale = 1 + Math.min(combo * 0.04, 0.8)
@@ -196,6 +211,45 @@ export default function BellButton() {
         className="fixed inset-0 pointer-events-none"
         style={{ zIndex: 50 }}
       />
+
+      {/* 底部音量 bar */}
+      <div className="fixed bottom-0 left-0 right-0 flex flex-col items-center pb-8 pt-4" style={{ zIndex: 40 }}>
+        <div className="flex items-center gap-3 w-full max-w-xs px-4">
+          <VolumeLabel step={volumeStep} />
+          <div className="relative flex-1 flex items-center h-8">
+            {/* track */}
+            <div className="absolute inset-x-0 h-1.5 rounded-full bg-white/20" />
+            {/* filled */}
+            <div
+              className="absolute left-0 h-1.5 rounded-full bg-orange-400 transition-all"
+              style={{ width: `${(volumeStep / (VOLUME_STEPS.length - 1)) * 100}%` }}
+            />
+            {/* step dots */}
+            {VOLUME_STEPS.map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-2.5 h-2.5 rounded-full border-2 transition-colors"
+                style={{
+                  left:             `calc(${(i / (VOLUME_STEPS.length - 1)) * 100}% - 5px)`,
+                  background:       i <= volumeStep ? '#f97316' : 'rgba(255,255,255,0.3)',
+                  borderColor:      i <= volumeStep ? '#fdba74' : 'rgba(255,255,255,0.2)',
+                }}
+              />
+            ))}
+            <input
+              type="range"
+              min={0}
+              max={VOLUME_STEPS.length - 1}
+              step={1}
+              value={volumeStep}
+              onChange={e => setVolumeStep(Number(e.target.value))}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: '100%' }}
+              aria-label="Volume"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* 整個畫面 wrapper，用來做 screen shake */}
       <div ref={wrapperRef} className="shake-wrapper flex flex-col items-center justify-center gap-8">
