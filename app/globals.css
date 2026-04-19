@@ -24,3 +24,49 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ── Bell button shake ── */
+.bell-shake {
+  animation: bell-shake 0.35s ease-in-out;
+}
+@keyframes bell-shake {
+  0%   { transform: rotate(0deg)   scale(1); }
+  20%  { transform: rotate(-14deg) scale(1.12); }
+  45%  { transform: rotate(12deg)  scale(1.07); }
+  65%  { transform: rotate(-8deg)  scale(1.08); }
+  82%  { transform: rotate(5deg)   scale(1.03); }
+  100% { transform: rotate(0deg)   scale(1); }
+}
+
+/* ── Screen shake wrapper ── */
+.shake-wrapper {
+  --shake-x: 0px;
+  --shake-y: 0px;
+}
+.screen-shake {
+  animation: screen-shake 0.3s ease-out;
+}
+@keyframes screen-shake {
+  0%,100% { transform: translate(0, 0); }
+  20%     { transform: translate(var(--shake-x), var(--shake-y)); }
+  40%     { transform: translate(calc(var(--shake-x) * -0.6), calc(var(--shake-y) * -0.6)); }
+  60%     { transform: translate(calc(var(--shake-x) * 0.4), calc(var(--shake-y) * 0.4)); }
+  80%     { transform: translate(calc(var(--shake-x) * -0.2), calc(var(--shake-y) * -0.2)); }
+}
+
+/* ── Combo display ── */
+.combo-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  filter: drop-shadow(0 0 20px currentColor) drop-shadow(0 0 40px currentColor);
+  min-height: 120px;
+}
+.combo-number {
+  font-size: 7rem;
+  font-family: var(--font-black-ops), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  -webkit-text-stroke: 2px currentColor;
+}
