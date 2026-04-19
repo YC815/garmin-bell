@@ -84,7 +84,30 @@ export default function BellButton() {
   const audioCtxRef    = useRef<AudioContext | null>(null)
   const audioBufferRef = useRef<AudioBuffer | null>(null)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
-  const tickRef = useRef<(() => void) | null>(null)
+  const tickRef        = useRef<(() => void) | null>(null)
+  const pendingPlayRef = useRef(false)
+  const volumeStepRef  = useRef(DEFAULT_STEP)
+
+  useEffect(() => { volumeStepRef.current = volumeStep }, [volumeStep])
+
+  const playBuffer = useCallback((buffer: AudioBuffer) => {
+    const ctx = audioCtxRef.current
+    if (!ctx) return
+    const play = () => {
+      const gainNode = ctx.createGain()
+      gainNode.gain.value = VOLUME_STEPS[volumeStepRef.current]
+      gainNode.connect(ctx.destination)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(gainNode)
+      source.start()
+    }
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(play)
+    } else {
+      play()
+    }
+  }, [])
 
   useEffect(() => {
     if ('audioSession' in navigator) {
@@ -95,10 +118,16 @@ export default function BellButton() {
     fetch('/garmin_bell.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => ctx.decodeAudioData(buf))
-      .then(decoded => { audioBufferRef.current = decoded })
+      .then(decoded => {
+        audioBufferRef.current = decoded
+        if (pendingPlayRef.current) {
+          pendingPlayRef.current = false
+          playBuffer(decoded)
+        }
+      })
       .catch(() => {})
     return () => { ctx.close() }
-  }, [])
+  }, [playBuffer])
 
   // canvas 跟隨視窗大小
   useEffect(() => {
@@ -159,17 +188,11 @@ export default function BellButton() {
   }, [])
 
   const handleClick = useCallback(() => {
-    const ctx = audioCtxRef.current
     const buffer = audioBufferRef.current
-    if (ctx && buffer) {
-      if (ctx.state === 'suspended') ctx.resume()
-      const gainNode = ctx.createGain()
-      gainNode.gain.value = VOLUME_STEPS[volumeStep]
-      gainNode.connect(ctx.destination)
-      const source = ctx.createBufferSource()
-      source.buffer = buffer
-      source.connect(gainNode)
-      source.start()
+    if (buffer) {
+      playBuffer(buffer)
+    } else {
+      pendingPlayRef.current = true
     }
 
     // 按鈕 shake
@@ -217,7 +240,7 @@ export default function BellButton() {
 
     // 畫面震動，combo 越高越抖
     shakeScreen(Math.min(c * 0.8, 10))
-  }, [shakeScreen, volumeStep])
+  }, [shakeScreen, playBuffer])
 
   const color = getComboColor(combo)
   const scale = 1 + Math.min(combo * 0.04, 0.8)
