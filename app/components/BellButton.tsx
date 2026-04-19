@@ -84,6 +84,9 @@ export default function BellButton() {
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
 
   useEffect(() => {
+    if ('audioSession' in navigator) {
+      (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'playback'
+    }
     const ctx = new AudioContext()
     audioCtxRef.current = ctx
     fetch('/garmin_bell.mp3')
