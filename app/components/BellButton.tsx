@@ -65,6 +65,20 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const audioCtxRef  = useRef<AudioContext | null>(null)
+  const audioBufferRef = useRef<AudioBuffer | null>(null)
+
+  useEffect(() => {
+    const ctx = new AudioContext()
+    audioCtxRef.current = ctx
+    fetch('/garmin_bell.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => ctx.decodeAudioData(buf))
+      .then(decoded => { audioBufferRef.current = decoded })
+      .catch(() => {})
+    return () => { ctx.close() }
+  }, [])
+
   // canvas 跟隨視窗大小
   useEffect(() => {
     const canvas = canvasRef.current
@@ -117,13 +131,18 @@ export default function BellButton() {
   }, [])
 
   const handleClick = useCallback(() => {
-    const audioCtx = new AudioContext()
-    const gainNode = audioCtx.createGain()
-    gainNode.gain.value = 3.0
-    gainNode.connect(audioCtx.destination)
-    const source = audioCtx.createMediaElementSource(new Audio('/garmin_bell.mp3'))
-    source.connect(gainNode)
-    source.mediaElement.play().catch(() => {})
+    const ctx = audioCtxRef.current
+    const buffer = audioBufferRef.current
+    if (ctx && buffer) {
+      if (ctx.state === 'suspended') ctx.resume()
+      const gainNode = ctx.createGain()
+      gainNode.gain.value = 3.0
+      gainNode.connect(ctx.destination)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(gainNode)
+      source.start()
+    }
 
     // 按鈕 shake
     const btn = btnRef.current
