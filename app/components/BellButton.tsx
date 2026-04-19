@@ -217,22 +217,22 @@ export default function BellButton() {
         <div className="flex items-center gap-3 w-full max-w-xs px-4">
           <VolumeLabel step={volumeStep} />
           <div className="relative flex-1 flex items-center h-8">
-            {/* track */}
-            <div className="absolute inset-x-0 h-1.5 rounded-full bg-white/20" />
+            {/* track 底色 — 淺灰，亮暗背景皆清晰可見 */}
+            <div className="absolute inset-x-0 h-2 rounded-full" style={{ background: '#d1d5db' }} />
             {/* filled */}
             <div
-              className="absolute left-0 h-1.5 rounded-full bg-orange-400 transition-all"
+              className="absolute left-0 h-2 rounded-full bg-orange-400 transition-all"
               style={{ width: `${(volumeStep / (VOLUME_STEPS.length - 1)) * 100}%` }}
             />
             {/* step dots */}
             {VOLUME_STEPS.map((_, i) => (
               <div
                 key={i}
-                className="absolute w-2.5 h-2.5 rounded-full border-2 transition-colors"
+                className="absolute w-3 h-3 rounded-full border-2 transition-colors"
                 style={{
-                  left:             `calc(${(i / (VOLUME_STEPS.length - 1)) * 100}% - 5px)`,
-                  background:       i <= volumeStep ? '#f97316' : 'rgba(255,255,255,0.3)',
-                  borderColor:      i <= volumeStep ? '#fdba74' : 'rgba(255,255,255,0.2)',
+                  left:        `calc(${(i / (VOLUME_STEPS.length - 1)) * 100}% - 6px)`,
+                  background:  i <= volumeStep ? '#f97316' : '#9ca3af',
+                  borderColor: i <= volumeStep ? '#fed7aa' : '#e5e7eb',
                 }}
               />
             ))}
