@@ -117,8 +117,13 @@ export default function BellButton() {
   }, [])
 
   const handleClick = useCallback(() => {
-    const audio = new Audio('/garmin_bell.mp3')
-    audio.play().catch(() => {})
+    const audioCtx = new AudioContext()
+    const gainNode = audioCtx.createGain()
+    gainNode.gain.value = 3.0
+    gainNode.connect(audioCtx.destination)
+    const source = audioCtx.createMediaElementSource(new Audio('/garmin_bell.mp3'))
+    source.connect(gainNode)
+    source.mediaElement.play().catch(() => {})
 
     // 按鈕 shake
     const btn = btnRef.current
