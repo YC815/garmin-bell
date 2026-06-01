@@ -95,15 +95,6 @@ function getComboColor(combo: number): string {
   return '#ffffff'
 }
 
-// ── Audio Pool ─────────────────────────────────────────────
-function createPool(src: string, size = 4): HTMLAudioElement[] {
-  return Array.from({ length: size }, () => {
-    const a = new Audio(src)
-    a.preload = 'auto'
-    return a
-  })
-}
-
 // ── Main Component ─────────────────────────────────────────
 export default function BellButton() {
   const btnRef        = useRef<HTMLButtonElement>(null)
@@ -118,9 +109,8 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const normalPoolRef  = useRef<HTMLAudioElement[]>([])
-  const evilPoolRef    = useRef<HTMLAudioElement[]>([])
-  const poolIdxRef     = useRef(0)
+  const normalAudioRef = useRef<HTMLAudioElement | null>(null)
+  const evilAudioRef   = useRef<HTMLAudioElement | null>(null)
   const audioUnlocked  = useRef(false)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
   const tickRef        = useRef<(() => void) | null>(null)
@@ -138,47 +128,36 @@ export default function BellButton() {
   useEffect(() => { volumeStepRef.current = volumeStep }, [volumeStep])
   useEffect(() => { evilModeRef.current = evilMode }, [evilMode])
 
-  // 音量變更時同步所有 pool 元素
-  useEffect(() => {
-    const v = VOLUME_STEPS[volumeStep]
-    ;[...normalPoolRef.current, ...evilPoolRef.current].forEach(a => { a.volume = v })
-  }, [volumeStep])
-
   // evil mode 背景切換
   useEffect(() => {
     document.body.dataset.evil = evilMode ? 'true' : 'false'
     return () => { delete document.body.dataset.evil }
   }, [evilMode])
 
-  const unlockAudio = useCallback(() => {
-    if (audioUnlocked.current) return
-    audioUnlocked.current = true
-    ;[...normalPoolRef.current, ...evilPoolRef.current].forEach(a => {
-      const v = a.volume; a.volume = 0
-      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = v }).catch(() => {})
-    })
-  }, [])
-
   const playSound = useCallback(() => {
-    const pool = evilModeRef.current ? evilPoolRef.current : normalPoolRef.current
-    if (!pool.length) return
-    const audio = pool[poolIdxRef.current % pool.length]
-    poolIdxRef.current++
-    audio.volume = VOLUME_STEPS[volumeStepRef.current]
-    audio.currentTime = 0
-    audio.play().catch(() => {})
+    const src = evilModeRef.current ? evilAudioRef.current : normalAudioRef.current
+    if (!src) return
+    if (!audioUnlocked.current) {
+      audioUnlocked.current = true
+      src.muted = true
+      src.play().catch(() => {})
+      src.muted = false
+    }
+    const clone = src.cloneNode() as HTMLAudioElement
+    clone.volume = VOLUME_STEPS[volumeStepRef.current]
+    clone.play().catch(() => {})
   }, [])
 
   useEffect(() => {
-    normalPoolRef.current = createPool('/garmin_bell.mp3')
-    evilPoolRef.current   = createPool('/evil.mp3')
-    poolIdxRef.current    = 0
-    audioUnlocked.current = false
+    const n = new Audio('/garmin_bell.mp3'); n.preload = 'auto'
+    const e = new Audio('/evil.mp3');        e.preload = 'auto'
+    normalAudioRef.current = n
+    evilAudioRef.current   = e
+    audioUnlocked.current  = false
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      const broken = normalPoolRef.current.some(a => a.error !== null)
-      if (broken && sessionStorage.getItem('audio_reloaded') !== '1') {
+      if (normalAudioRef.current?.error && sessionStorage.getItem('audio_reloaded') !== '1') {
         sessionStorage.setItem('audio_reloaded', '1')
         location.reload()
       }
@@ -186,8 +165,7 @@ export default function BellButton() {
     document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
-      normalPoolRef.current.forEach(a => { a.src = '' })
-      evilPoolRef.current.forEach(a => { a.src = '' })
+      n.src = ''; e.src = ''
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [])
@@ -322,7 +300,6 @@ export default function BellButton() {
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return
-    unlockAudio()
     ignoreNextClickRef.current = true
     isPointerDownRef.current   = true
     triggerBell()
@@ -330,7 +307,7 @@ export default function BellButton() {
       if (!isPointerDownRef.current) return
       repeatTimerRef.current = setInterval(triggerBell, 160)
     }, 350)
-  }, [triggerBell, unlockAudio])
+  }, [triggerBell])
 
   // onClick fires only via keyboard (Space/Enter); pointer path sets ignoreNextClickRef
   const handleClick = useCallback(() => {
