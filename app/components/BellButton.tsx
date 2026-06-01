@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const VOLUME_STEPS = [0.25, 0.5, 1.0, 2.0, 3.0]
-const DEFAULT_STEP = 2 // index of 1.0
+const DEFAULT_STEP = 2
 
 function VolumeLabel({ step }: { step: number }) {
   const labels = ['🔇', '🔉', '🔊', '📢', '💥']
@@ -27,6 +27,10 @@ interface Particle {
   alpha: number
   decay: number
   gravity: number
+  emoji?: string
+  fontSize?: number
+  rotation?: number
+  rotationSpeed?: number
 }
 
 const COLORS = [
@@ -36,14 +40,17 @@ const COLORS = [
   '#ffffff',
 ]
 
-function spawnParticles(canvas: HTMLCanvasElement, cx: number, cy: number, count: number) {
+const HEART_EMOJIS = ['💘', '💓', '💗', '💕', '💞', '🖤', '❤️', '💔', '💋', '❤️‍🔥']
+
+const MAX_PARTICLES = 150
+
+function spawnParticles(cx: number, cy: number, count: number): Particle[] {
   const particles: Particle[] = []
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2
     const speed = 2 + Math.random() * 8
     particles.push({
-      x: cx,
-      y: cy,
+      x: cx, y: cy,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       radius: 2 + Math.random() * 4,
@@ -51,6 +58,29 @@ function spawnParticles(canvas: HTMLCanvasElement, cx: number, cy: number, count
       alpha: 1,
       decay: 0.015 + Math.random() * 0.02,
       gravity: 0.15 + Math.random() * 0.1,
+    })
+  }
+  return particles
+}
+
+function spawnHeartParticles(cx: number, cy: number, count: number): Particle[] {
+  const particles: Particle[] = []
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2
+    const speed = 2 + Math.random() * 8
+    particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius: 0,
+      color: '',
+      alpha: 1,
+      decay: 0.012 + Math.random() * 0.018,
+      gravity: 0.12 + Math.random() * 0.1,
+      emoji: HEART_EMOJIS[Math.floor(Math.random() * HEART_EMOJIS.length)],
+      fontSize: 16 + Math.floor(Math.random() * 22),
+      rotation: Math.random() * Math.PI * 2,
+      rotationSpeed: (Math.random() - 0.5) * 0.15,
     })
   }
   return particles
@@ -64,8 +94,6 @@ function getComboColor(combo: number): string {
   if (combo >= 5)  return '#ffcc00'
   return '#ffffff'
 }
-
-const MAX_PARTICLES = 150
 
 // ── Main Component ─────────────────────────────────────────
 export default function BellButton() {
@@ -81,14 +109,31 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const audioCtxRef    = useRef<AudioContext | null>(null)
-  const audioBufferRef = useRef<AudioBuffer | null>(null)
+  const audioCtxRef     = useRef<AudioContext | null>(null)
+  const normalBufferRef = useRef<AudioBuffer | null>(null)
+  const evilBufferRef   = useRef<AudioBuffer | null>(null)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
-  const tickRef        = useRef<(() => void) | null>(null)
-  const pendingPlayRef = useRef(false)
-  const volumeStepRef  = useRef(DEFAULT_STEP)
+  const tickRef         = useRef<(() => void) | null>(null)
+  const pendingPlayRef  = useRef(false)
+  const volumeStepRef   = useRef(DEFAULT_STEP)
+
+  const [evilMode, setEvilMode] = useState(false)
+  const evilModeRef = useRef(false)
+
+  // ── 長按連按 ──────────────────────────────────────────────
+  const pressTimerRef      = useRef<ReturnType<typeof setTimeout>  | null>(null)
+  const repeatTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isPointerDownRef   = useRef(false)
+  const ignoreNextClickRef = useRef(false)
 
   useEffect(() => { volumeStepRef.current = volumeStep }, [volumeStep])
+  useEffect(() => { evilModeRef.current = evilMode }, [evilMode])
+
+  // evil mode 背景切換
+  useEffect(() => {
+    document.body.dataset.evil = evilMode ? 'true' : 'false'
+    return () => { delete document.body.dataset.evil }
+  }, [evilMode])
 
   const playBuffer = useCallback((buffer: AudioBuffer) => {
     const ctx = audioCtxRef.current
@@ -109,23 +154,37 @@ export default function BellButton() {
     }
   }, [])
 
+  const playSound = useCallback(() => {
+    const buffer = evilModeRef.current ? evilBufferRef.current : normalBufferRef.current
+    if (buffer) {
+      playBuffer(buffer)
+    } else {
+      pendingPlayRef.current = true
+    }
+  }, [playBuffer])
+
   useEffect(() => {
     if ('audioSession' in navigator) {
       (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'playback'
     }
     const ctx = new AudioContext()
     audioCtxRef.current = ctx
-    fetch('/garmin_bell.mp3')
-      .then(r => r.arrayBuffer())
-      .then(buf => ctx.decodeAudioData(buf))
-      .then(decoded => {
-        audioBufferRef.current = decoded
-        if (pendingPlayRef.current) {
-          pendingPlayRef.current = false
-          playBuffer(decoded)
-        }
-      })
-      .catch(() => {})
+
+    const loadAudio = (path: string) =>
+      fetch(path).then(r => r.arrayBuffer()).then(buf => ctx.decodeAudioData(buf))
+
+    Promise.all([
+      loadAudio('/garmin_bell.mp3'),
+      loadAudio('/evil.mp3'),
+    ]).then(([normal, evil]) => {
+      normalBufferRef.current = normal
+      evilBufferRef.current   = evil
+      if (pendingPlayRef.current) {
+        pendingPlayRef.current = false
+        playBuffer(evilModeRef.current ? evil : normal)
+      }
+    }).catch(() => {})
+
     return () => { ctx.close() }
   }, [playBuffer])
 
@@ -152,16 +211,31 @@ export default function BellButton() {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       particlesRef.current = particlesRef.current.filter(p => p.alpha > 0)
       for (const p of particlesRef.current) {
-        p.x     += p.vx
-        p.y     += p.vy
-        p.vy    += p.gravity
-        p.vx    *= 0.98
+        p.x  += p.vx
+        p.y  += p.vy
+        p.vy += p.gravity
+        p.vx *= 0.98
         p.alpha -= p.decay
-        ctx.globalAlpha = Math.max(0, p.alpha)
-        ctx.fillStyle   = p.color
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
-        ctx.fill()
+        if (p.emoji) {
+          ctx.save()
+          ctx.globalAlpha = Math.max(0, p.alpha)
+          ctx.translate(p.x, p.y)
+          if (p.rotation !== undefined && p.rotationSpeed !== undefined) {
+            p.rotation += p.rotationSpeed
+            ctx.rotate(p.rotation)
+          }
+          ctx.font = `${p.fontSize ?? 20}px sans-serif`
+          ctx.textAlign    = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(p.emoji, 0, 0)
+          ctx.restore()
+        } else {
+          ctx.globalAlpha = Math.max(0, p.alpha)
+          ctx.fillStyle   = p.color
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
       ctx.globalAlpha = 1
       if (particlesRef.current.length > 0) {
@@ -187,15 +261,18 @@ export default function BellButton() {
     wrapper.classList.add('screen-shake')
   }, [])
 
-  const handleClick = useCallback(() => {
-    const buffer = audioBufferRef.current
-    if (buffer) {
-      playBuffer(buffer)
-    } else {
-      pendingPlayRef.current = true
-    }
+  const stopRepeat = useCallback(() => {
+    if (pressTimerRef.current)  { clearTimeout(pressTimerRef.current);  pressTimerRef.current  = null }
+    if (repeatTimerRef.current) { clearInterval(repeatTimerRef.current); repeatTimerRef.current = null }
+    isPointerDownRef.current = false
+  }, [])
 
-    // 按鈕 shake
+  // cleanup on unmount
+  useEffect(() => stopRepeat, [stopRepeat])
+
+  const triggerBell = useCallback(() => {
+    playSound()
+
     const btn = btnRef.current
     if (btn) {
       btn.classList.remove('bell-shake')
@@ -203,16 +280,15 @@ export default function BellButton() {
       btn.classList.add('bell-shake')
     }
 
-    // 爆粒子 — 從按鈕中心發射
     const canvas = canvasRef.current
     if (canvas && btn) {
-      const rect = btn.getBoundingClientRect()
-      const cx   = rect.left + rect.width  / 2
-      const cy   = rect.top  + rect.height / 2
-      const newParticles = spawnParticles(
-        canvas, cx, cy,
-        20 + Math.min(comboRef.current * 5, 80),
-      )
+      const rect  = btn.getBoundingClientRect()
+      const cx    = rect.left + rect.width  / 2
+      const cy    = rect.top  + rect.height / 2
+      const count = 20 + Math.min(comboRef.current * 5, 80)
+      const newParticles = evilModeRef.current
+        ? spawnHeartParticles(cx, cy, count)
+        : spawnParticles(cx, cy, count)
       particlesRef.current.push(...newParticles)
       if (particlesRef.current.length > MAX_PARTICLES) {
         particlesRef.current = particlesRef.current.slice(-MAX_PARTICLES)
@@ -222,7 +298,6 @@ export default function BellButton() {
       }
     }
 
-    // combo 計數
     comboRef.current += 1
     const c = comboRef.current
     setCombo(c)
@@ -238,9 +313,28 @@ export default function BellButton() {
       setCombo(0)
     }, 800)
 
-    // 畫面震動，combo 越高越抖
     shakeScreen(Math.min(c * 0.8, 10))
-  }, [shakeScreen, playBuffer])
+  }, [shakeScreen, playSound])
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    ignoreNextClickRef.current = true
+    isPointerDownRef.current   = true
+    triggerBell()
+    pressTimerRef.current = setTimeout(() => {
+      if (!isPointerDownRef.current) return
+      repeatTimerRef.current = setInterval(triggerBell, 80)
+    }, 350)
+  }, [triggerBell])
+
+  // onClick fires only via keyboard (Space/Enter); pointer path sets ignoreNextClickRef
+  const handleClick = useCallback(() => {
+    if (ignoreNextClickRef.current) {
+      ignoreNextClickRef.current = false
+      return
+    }
+    triggerBell()
+  }, [triggerBell])
 
   const color = getComboColor(combo)
   const scale = 1 + Math.min(combo * 0.04, 0.8)
@@ -254,17 +348,41 @@ export default function BellButton() {
         style={{ zIndex: 50 }}
       />
 
+      {/* Evil mode 切換按鈕（右上角） */}
+      <button
+        onClick={() => setEvilMode(m => !m)}
+        aria-label="Toggle evil mode"
+        className="fixed top-4 right-4 select-none leading-none"
+        style={{
+          zIndex: 45,
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          fontSize: 28,
+          lineHeight: 1,
+          padding: 4,
+        }}
+      >
+        {evilMode ? '🔔' : '🖤'}
+      </button>
+
       {/* 底部音量 bar */}
       <div className="fixed bottom-0 left-0 right-0 flex flex-col items-center pb-8 pt-4" style={{ zIndex: 40 }}>
         <div className="flex items-center gap-3 w-full max-w-xs px-4">
           <VolumeLabel step={volumeStep} />
           <div className="relative flex-1 flex items-center h-8">
-            {/* track 底色 — 淺灰，亮暗背景皆清晰可見 */}
-            <div className="absolute inset-x-0 h-2 rounded-full" style={{ background: '#d1d5db' }} />
+            {/* track 底色 */}
+            <div
+              className="absolute inset-x-0 h-2 rounded-full"
+              style={{ background: evilMode ? '#3f3f46' : '#d1d5db' }}
+            />
             {/* filled */}
             <div
-              className="absolute left-0 h-2 rounded-full bg-orange-400 transition-all"
-              style={{ width: `${(volumeStep / (VOLUME_STEPS.length - 1)) * 100}%` }}
+              className="absolute left-0 h-2 rounded-full transition-all"
+              style={{
+                width:      `${(volumeStep / (VOLUME_STEPS.length - 1)) * 100}%`,
+                background: evilMode ? '#991b1b' : '#f97316',
+              }}
             />
             {/* step dots */}
             {VOLUME_STEPS.map((_, i) => (
@@ -273,8 +391,8 @@ export default function BellButton() {
                 className="absolute w-3 h-3 rounded-full border-2 transition-colors"
                 style={{
                   left:        `calc(${(i / (VOLUME_STEPS.length - 1)) * 100}% - 6px)`,
-                  background:  i <= volumeStep ? '#f97316' : '#9ca3af',
-                  borderColor: i <= volumeStep ? '#fed7aa' : '#e5e7eb',
+                  background:  i <= volumeStep ? (evilMode ? '#b91c1c' : '#f97316') : (evilMode ? '#52525b' : '#9ca3af'),
+                  borderColor: i <= volumeStep ? (evilMode ? '#7f1d1d' : '#fed7aa') : (evilMode ? '#3f3f46' : '#e5e7eb'),
                 }}
               />
             ))}
@@ -312,19 +430,34 @@ export default function BellButton() {
         {/* 主按鈕 */}
         <button
           ref={btnRef}
+          onPointerDown={handlePointerDown}
+          onPointerUp={stopRepeat}
+          onPointerLeave={stopRepeat}
+          onPointerCancel={stopRepeat}
           onClick={handleClick}
-          aria-label="Ring bell"
-          className="bell-btn relative flex items-center justify-center rounded-full bg-orange-500 shadow-2xl hover:bg-orange-400 focus-visible:outline-none"
-          style={{ width: 200, height: 200 }}
+          aria-label={evilMode ? 'Ring evil bell' : 'Ring bell'}
+          className="bell-btn relative flex items-center justify-center rounded-full shadow-2xl focus-visible:outline-none"
+          style={{
+            width:       200,
+            height:      200,
+            background:  evilMode ? '#7f1d1d' : '#f97316',
+            transition:  'background 0.3s',
+            touchAction: 'manipulation',
+            userSelect:  'none',
+          }}
         >
-          <svg
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="text-white"
-            style={{ width: 88, height: 88 }}
-          >
-            <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
-          </svg>
+          {evilMode ? (
+            <span style={{ fontSize: 88, lineHeight: 1, userSelect: 'none' }}>😈</span>
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="text-white"
+              style={{ width: 88, height: 88 }}
+            >
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+            </svg>
+          )}
         </button>
       </div>
     </>

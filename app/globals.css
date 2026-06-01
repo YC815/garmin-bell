@@ -23,6 +23,16 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background 0.3s ease;
+}
+
+body[data-evil="true"],
+body[data-evil="true"] main {
+  background: #0a0a0a !important;
+}
+
+body[data-evil="true"] .bell-btn:hover {
+  background: #991b1b !important;
 }
 
 /* ── Bell button shake ── */
