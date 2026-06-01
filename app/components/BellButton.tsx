@@ -434,6 +434,7 @@ export default function BellButton() {
           onPointerUp={stopRepeat}
           onPointerLeave={stopRepeat}
           onPointerCancel={stopRepeat}
+          onContextMenu={e => e.preventDefault()}
           onClick={handleClick}
           aria-label={evilMode ? 'Ring evil bell' : 'Ring bell'}
           className="bell-btn relative flex items-center justify-center rounded-full shadow-2xl focus-visible:outline-none"

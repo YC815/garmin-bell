@@ -35,6 +35,12 @@ body[data-evil="true"] .bell-btn:hover {
   background: #991b1b !important;
 }
 
+/* ── Prevent iOS long-press callout / selection on bell button ── */
+.bell-btn, .bell-btn * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+}
+
 /* ── Bell button shake ── */
 .bell-shake {
   animation: bell-shake 0.35s ease-in-out;
