@@ -95,6 +95,15 @@ function getComboColor(combo: number): string {
   return '#ffffff'
 }
 
+// ── Audio Pool ─────────────────────────────────────────────
+function createPool(src: string, size = 4): HTMLAudioElement[] {
+  return Array.from({ length: size }, () => {
+    const a = new Audio(src)
+    a.preload = 'auto'
+    return a
+  })
+}
+
 // ── Main Component ─────────────────────────────────────────
 export default function BellButton() {
   const btnRef        = useRef<HTMLButtonElement>(null)
@@ -109,13 +118,13 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const audioCtxRef     = useRef<AudioContext | null>(null)
-  const normalBufferRef = useRef<AudioBuffer | null>(null)
-  const evilBufferRef   = useRef<AudioBuffer | null>(null)
+  const normalPoolRef  = useRef<HTMLAudioElement[]>([])
+  const evilPoolRef    = useRef<HTMLAudioElement[]>([])
+  const poolIdxRef     = useRef(0)
+  const audioUnlocked  = useRef(false)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
-  const tickRef         = useRef<(() => void) | null>(null)
-  const pendingPlayRef  = useRef(false)
-  const volumeStepRef   = useRef(DEFAULT_STEP)
+  const tickRef        = useRef<(() => void) | null>(null)
+  const volumeStepRef  = useRef(DEFAULT_STEP)
 
   const [evilMode, setEvilMode] = useState(false)
   const evilModeRef = useRef(false)
@@ -129,6 +138,12 @@ export default function BellButton() {
   useEffect(() => { volumeStepRef.current = volumeStep }, [volumeStep])
   useEffect(() => { evilModeRef.current = evilMode }, [evilMode])
 
+  // 音量變更時同步所有 pool 元素
+  useEffect(() => {
+    const v = VOLUME_STEPS[volumeStep]
+    ;[...normalPoolRef.current, ...evilPoolRef.current].forEach(a => { a.volume = v })
+  }, [volumeStep])
+
   // evil mode 背景切換
   useEffect(() => {
     document.body.dataset.evil = evilMode ? 'true' : 'false'
@@ -136,85 +151,46 @@ export default function BellButton() {
   }, [evilMode])
 
   const unlockAudio = useCallback(() => {
-    const ctx = audioCtxRef.current
-    if (!ctx || ctx.state === 'running') return
-    const silent = ctx.createBufferSource()
-    silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
-    silent.connect(ctx.destination)
-    silent.start(0)
-    ctx.resume().catch(() => {})
-  }, [])
-
-  const playBuffer = useCallback((buffer: AudioBuffer) => {
-    const ctx = audioCtxRef.current
-    if (!ctx || ctx.state === 'closed') return
-    const play = () => {
-      const gainNode = ctx.createGain()
-      gainNode.gain.value = VOLUME_STEPS[volumeStepRef.current]
-      gainNode.connect(ctx.destination)
-      const source = ctx.createBufferSource()
-      source.buffer = buffer
-      source.connect(gainNode)
-      source.start()
-    }
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(play).catch(() => {})
-    } else {
-      play()
-    }
+    if (audioUnlocked.current) return
+    audioUnlocked.current = true
+    ;[...normalPoolRef.current, ...evilPoolRef.current].forEach(a => {
+      const v = a.volume; a.volume = 0
+      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = v }).catch(() => {})
+    })
   }, [])
 
   const playSound = useCallback(() => {
-    const buffer = evilModeRef.current ? evilBufferRef.current : normalBufferRef.current
-    if (buffer) {
-      playBuffer(buffer)
-    } else {
-      pendingPlayRef.current = true
-    }
-  }, [playBuffer])
+    const pool = evilModeRef.current ? evilPoolRef.current : normalPoolRef.current
+    if (!pool.length) return
+    const audio = pool[poolIdxRef.current % pool.length]
+    poolIdxRef.current++
+    audio.volume = VOLUME_STEPS[volumeStepRef.current]
+    audio.currentTime = 0
+    audio.play().catch(() => {})
+  }, [])
 
   useEffect(() => {
-    if ('audioSession' in navigator) {
-      (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'playback'
-    }
-    const ctx = new AudioContext()
-    audioCtxRef.current = ctx
-
-    const loadAudio = (path: string) =>
-      fetch(path).then(r => r.arrayBuffer()).then(buf => ctx.decodeAudioData(buf))
-
-    loadAudio('/garmin_bell.mp3').then(buf => {
-      normalBufferRef.current = buf
-      if (pendingPlayRef.current && audioCtxRef.current?.state === 'running') {
-        pendingPlayRef.current = false
-        playBuffer(buf)
-      } else {
-        pendingPlayRef.current = false
-      }
-    }).catch(() => {})
-
-    loadAudio('/evil.mp3').then(buf => {
-      evilBufferRef.current = buf
-    }).catch(() => {})
+    normalPoolRef.current = createPool('/garmin_bell.mp3')
+    evilPoolRef.current   = createPool('/evil.mp3')
+    poolIdxRef.current    = 0
+    audioUnlocked.current = false
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      const broken = !audioCtxRef.current || audioCtxRef.current.state === 'closed' || !normalBufferRef.current
+      const broken = normalPoolRef.current.some(a => a.error !== null)
       if (broken && sessionStorage.getItem('audio_reloaded') !== '1') {
         sessionStorage.setItem('audio_reloaded', '1')
         location.reload()
       }
     }
-    const handlePageShow = (_e: PageTransitionEvent) => { /* BFCache restore handled by visibilitychange */ }
     document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('pageshow', handlePageShow)
 
     return () => {
-      ctx.close()
+      normalPoolRef.current.forEach(a => { a.src = '' })
+      evilPoolRef.current.forEach(a => { a.src = '' })
       document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('pageshow', handlePageShow)
     }
-  }, [playBuffer])
+  }, [])
 
   // canvas 跟隨視窗大小
   useEffect(() => {
