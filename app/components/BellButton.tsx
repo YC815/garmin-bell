@@ -195,7 +195,13 @@ export default function BellButton() {
     }).catch(() => {})
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') unlockedRef.current = false
+      if (document.visibilityState !== 'visible') return
+      unlockedRef.current = false
+      const broken = !audioCtxRef.current || audioCtxRef.current.state === 'closed' || !normalBufferRef.current
+      if (broken && sessionStorage.getItem('audio_reloaded') !== '1') {
+        sessionStorage.setItem('audio_reloaded', '1')
+        location.reload()
+      }
     }
     const handlePageShow = (e: PageTransitionEvent) => {
       if (e.persisted) unlockedRef.current = false

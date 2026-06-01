@@ -37,6 +37,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${blackOpsOne.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="preload" href="/garmin_bell.mp3" as="audio" />
+        <link rel="preload" href="/evil.mp3" as="audio" />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
