@@ -116,6 +116,7 @@ export default function BellButton() {
   const tickRef         = useRef<(() => void) | null>(null)
   const pendingPlayRef  = useRef(false)
   const volumeStepRef   = useRef(DEFAULT_STEP)
+  const unlockedRef     = useRef(false)
 
   const [evilMode, setEvilMode] = useState(false)
   const evilModeRef = useRef(false)
@@ -135,9 +136,20 @@ export default function BellButton() {
     return () => { delete document.body.dataset.evil }
   }, [evilMode])
 
+  const unlockAudio = useCallback(() => {
+    const ctx = audioCtxRef.current
+    if (!ctx || unlockedRef.current) return
+    unlockedRef.current = true
+    const silent = ctx.createBufferSource()
+    silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
+    silent.connect(ctx.destination)
+    silent.start(0)
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+  }, [])
+
   const playBuffer = useCallback((buffer: AudioBuffer) => {
     const ctx = audioCtxRef.current
-    if (!ctx) return
+    if (!ctx || ctx.state === 'closed') return
     const play = () => {
       const gainNode = ctx.createGain()
       gainNode.gain.value = VOLUME_STEPS[volumeStepRef.current]
@@ -148,7 +160,7 @@ export default function BellButton() {
       source.start()
     }
     if (ctx.state === 'suspended') {
-      ctx.resume().then(play)
+      ctx.resume().then(play).catch(() => {})
     } else {
       play()
     }
@@ -179,13 +191,23 @@ export default function BellButton() {
     ]).then(([normal, evil]) => {
       normalBufferRef.current = normal
       evilBufferRef.current   = evil
-      if (pendingPlayRef.current) {
-        pendingPlayRef.current = false
-        playBuffer(evilModeRef.current ? evil : normal)
-      }
+      pendingPlayRef.current  = false
     }).catch(() => {})
 
-    return () => { ctx.close() }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') unlockedRef.current = false
+    }
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) unlockedRef.current = false
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('pageshow', handlePageShow)
+
+    return () => {
+      ctx.close()
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('pageshow', handlePageShow)
+    }
   }, [playBuffer])
 
   // canvas 跟隨視窗大小
@@ -318,6 +340,7 @@ export default function BellButton() {
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return
+    unlockAudio()
     ignoreNextClickRef.current = true
     isPointerDownRef.current   = true
     triggerBell()
@@ -325,7 +348,7 @@ export default function BellButton() {
       if (!isPointerDownRef.current) return
       repeatTimerRef.current = setInterval(triggerBell, 160)
     }, 350)
-  }, [triggerBell])
+  }, [triggerBell, unlockAudio])
 
   // onClick fires only via keyboard (Space/Enter); pointer path sets ignoreNextClickRef
   const handleClick = useCallback(() => {
