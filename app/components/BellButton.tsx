@@ -323,7 +323,7 @@ export default function BellButton() {
     triggerBell()
     pressTimerRef.current = setTimeout(() => {
       if (!isPointerDownRef.current) return
-      repeatTimerRef.current = setInterval(triggerBell, 80)
+      repeatTimerRef.current = setInterval(triggerBell, 160)
     }, 350)
   }, [triggerBell])
 
