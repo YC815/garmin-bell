@@ -116,7 +116,6 @@ export default function BellButton() {
   const tickRef         = useRef<(() => void) | null>(null)
   const pendingPlayRef  = useRef(false)
   const volumeStepRef   = useRef(DEFAULT_STEP)
-  const unlockedRef     = useRef(false)
 
   const [evilMode, setEvilMode] = useState(false)
   const evilModeRef = useRef(false)
@@ -138,13 +137,12 @@ export default function BellButton() {
 
   const unlockAudio = useCallback(() => {
     const ctx = audioCtxRef.current
-    if (!ctx || unlockedRef.current) return
-    unlockedRef.current = true
+    if (!ctx || ctx.state === 'running') return
     const silent = ctx.createBufferSource()
     silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
     silent.connect(ctx.destination)
     silent.start(0)
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+    ctx.resume().catch(() => {})
   }, [])
 
   const playBuffer = useCallback((buffer: AudioBuffer) => {
@@ -185,27 +183,29 @@ export default function BellButton() {
     const loadAudio = (path: string) =>
       fetch(path).then(r => r.arrayBuffer()).then(buf => ctx.decodeAudioData(buf))
 
-    Promise.all([
-      loadAudio('/garmin_bell.mp3'),
-      loadAudio('/evil.mp3'),
-    ]).then(([normal, evil]) => {
-      normalBufferRef.current = normal
-      evilBufferRef.current   = evil
-      pendingPlayRef.current  = false
+    loadAudio('/garmin_bell.mp3').then(buf => {
+      normalBufferRef.current = buf
+      if (pendingPlayRef.current && audioCtxRef.current?.state === 'running') {
+        pendingPlayRef.current = false
+        playBuffer(buf)
+      } else {
+        pendingPlayRef.current = false
+      }
+    }).catch(() => {})
+
+    loadAudio('/evil.mp3').then(buf => {
+      evilBufferRef.current = buf
     }).catch(() => {})
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      unlockedRef.current = false
       const broken = !audioCtxRef.current || audioCtxRef.current.state === 'closed' || !normalBufferRef.current
       if (broken && sessionStorage.getItem('audio_reloaded') !== '1') {
         sessionStorage.setItem('audio_reloaded', '1')
         location.reload()
       }
     }
-    const handlePageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) unlockedRef.current = false
-    }
+    const handlePageShow = (_e: PageTransitionEvent) => { /* BFCache restore handled by visibilitychange */ }
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('pageshow', handlePageShow)
 
