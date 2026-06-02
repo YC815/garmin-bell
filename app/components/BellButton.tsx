@@ -109,9 +109,13 @@ export default function BellButton() {
   const [comboRotate, setComboRotate]   = useState(0)
   const comboFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const normalAudioRef = useRef<HTMLAudioElement | null>(null)
-  const evilAudioRef   = useRef<HTMLAudioElement | null>(null)
-  const audioUnlocked  = useRef(false)
+  const audioCtxRef       = useRef<AudioContext | null>(null)
+  const normalArrayBufRef = useRef<ArrayBuffer  | null>(null)
+  const evilArrayBufRef   = useRef<ArrayBuffer  | null>(null)
+  const normalPCMRef      = useRef<AudioBuffer  | null>(null)
+  const evilPCMRef        = useRef<AudioBuffer  | null>(null)
+  const normalAudioRef    = useRef<HTMLAudioElement | null>(null)
+  const evilAudioRef      = useRef<HTMLAudioElement | null>(null)
   const [volumeStep, setVolumeStep] = useState(DEFAULT_STEP)
   const tickRef        = useRef<(() => void) | null>(null)
   const volumeStepRef  = useRef(DEFAULT_STEP)
@@ -134,17 +138,41 @@ export default function BellButton() {
     return () => { delete document.body.dataset.evil }
   }, [evilMode])
 
-  const playSound = useCallback(() => {
-    const src = evilModeRef.current ? evilAudioRef.current : normalAudioRef.current
-    if (!src) return
-    if (!audioUnlocked.current) {
-      audioUnlocked.current = true
-      src.muted = true
-      src.play().catch(() => {})
-      src.muted = false
+  const ensureAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const ctx = new AudioContext()
+      audioCtxRef.current = ctx
+      if ('audioSession' in navigator) {
+        ;(navigator as { audioSession: { type: string } }).audioSession.type = 'playback'
+      }
+      const b1 = normalArrayBufRef.current
+      const b2 = evilArrayBufRef.current
+      if (b1) ctx.decodeAudioData(b1.slice(0)).then(b => { normalPCMRef.current = b }).catch(() => {})
+      if (b2) ctx.decodeAudioData(b2.slice(0)).then(b => { evilPCMRef.current = b }).catch(() => {})
+    } else if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {})
     }
-    const clone = src.cloneNode() as HTMLAudioElement
-    clone.volume = VOLUME_STEPS[volumeStepRef.current]
+  }, [])
+
+  const playSound = useCallback(() => {
+    const ctx = audioCtxRef.current
+    const pcm = evilModeRef.current ? evilPCMRef.current : normalPCMRef.current
+
+    if (ctx && ctx.state === 'running' && pcm) {
+      const gain = ctx.createGain()
+      gain.gain.value = VOLUME_STEPS[volumeStepRef.current]
+      gain.connect(ctx.destination)
+      const source = ctx.createBufferSource()
+      source.buffer = pcm
+      source.connect(gain)
+      source.start()
+      return
+    }
+
+    const audio = evilModeRef.current ? evilAudioRef.current : normalAudioRef.current
+    if (!audio) return
+    const clone = audio.cloneNode() as HTMLAudioElement
+    clone.volume = Math.min(VOLUME_STEPS[volumeStepRef.current], 1)
     clone.play().catch(() => {})
   }, [])
 
@@ -153,18 +181,35 @@ export default function BellButton() {
     const e = new Audio('/evil.mp3');        e.preload = 'auto'
     normalAudioRef.current = n
     evilAudioRef.current   = e
-    audioUnlocked.current  = false
+
+    const fetchBuf = (
+      url: string,
+      bufRef: React.MutableRefObject<ArrayBuffer | null>,
+      pcmRef: React.MutableRefObject<AudioBuffer | null>,
+    ) =>
+      fetch(url)
+        .then(r => r.arrayBuffer())
+        .then(buf => {
+          bufRef.current = buf
+          const ctx = audioCtxRef.current
+          if (ctx && ctx.state !== 'closed') {
+            ctx.decodeAudioData(buf.slice(0)).then(b => { pcmRef.current = b }).catch(() => {})
+          }
+        })
+        .catch(() => {})
+
+    fetchBuf('/garmin_bell.mp3', normalArrayBufRef, normalPCMRef)
+    fetchBuf('/evil.mp3',        evilArrayBufRef,   evilPCMRef)
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
-      if (normalAudioRef.current?.error && sessionStorage.getItem('audio_reloaded') !== '1') {
-        sessionStorage.setItem('audio_reloaded', '1')
-        location.reload()
-      }
+      audioCtxRef.current?.resume().catch(() => {})
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
+      audioCtxRef.current?.close()
+      audioCtxRef.current = null
       n.src = ''; e.src = ''
       document.removeEventListener('visibilitychange', handleVisibility)
     }
@@ -300,6 +345,7 @@ export default function BellButton() {
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return
+    ensureAudioCtx()
     ignoreNextClickRef.current = true
     isPointerDownRef.current   = true
     triggerBell()
@@ -307,7 +353,7 @@ export default function BellButton() {
       if (!isPointerDownRef.current) return
       repeatTimerRef.current = setInterval(triggerBell, 160)
     }, 350)
-  }, [triggerBell])
+  }, [triggerBell, ensureAudioCtx])
 
   // onClick fires only via keyboard (Space/Enter); pointer path sets ignoreNextClickRef
   const handleClick = useCallback(() => {
@@ -315,8 +361,9 @@ export default function BellButton() {
       ignoreNextClickRef.current = false
       return
     }
+    ensureAudioCtx()
     triggerBell()
-  }, [triggerBell])
+  }, [triggerBell, ensureAudioCtx])
 
   const color = getComboColor(combo)
   const scale = 1 + Math.min(combo * 0.04, 0.8)
